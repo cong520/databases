@@ -10,9 +10,9 @@
 import json
 import platform
 import cx_Oracle
-import sys,os
+import sys,os,re
 import collections
-# import time
+from subprocess import Popen, PIPE
 
 class OracleConnect(object):
     def __init__(self,host,port,user,passwd,db):
@@ -97,10 +97,72 @@ class OracleConnect(object):
         cursor.execute("select version from product_component_version")
         result = cursor.fetchall()
         return result[1][0]
+        
+    def db_sga(self,cursor):
+        '''获取当前，SGA使用大小MB'''
+        cursor.execute("select name,total,round(total-free,2) used, round(free,2) free,round((total-free)/total*100,2) pctused from (select 'SGA' name,(select sum(value/1024/1024) from v$sga) total,(select sum(bytes/1024/1024) from v$sgastat where name='free memory')free from dual)")
+        result = cursor.fetchall()
+        return result[0][2]
+
+    def db_pga(self,cursor):
+        '''获取当前，PGA使用大小MB'''
+        cursor.execute("select name,total,round(used,2)used,round(total-used,2)free,round(used/total*100,2)pctused from (select 'PGA' name,(select value/1024/1024 total from v$pgastat where name='aggregate PGA target parameter')total,(select value/1024/1024 used from v$pgastat where name='total PGA allocated')used from dual)")
+        result = cursor.fetchall()
+        return result[0][2]
+
+def oracle_sqlplus(sql):
+    '''公用函数'''
+    proc = Popen(["sqlplus", "-S", "/", "as", "sysdba"], stdout=PIPE, stdin=PIPE, stderr=PIPE)
+    proc.stdin.write(sql)
+    (out, err) = proc.communicate()
+    if err:
+        return err
+    else:
+        return out
+
+def amm_or_asmm():
+    '''检查数据库实例内存管理机制'''
+    result=oracle_sqlplus('show parameter memory_target')
+    memory_target=re.findall( r'\d+',result, re.M)
+    if int(memory_target[0]):
+        return 'AMM'
+    else:
+        result=oracle_sqlplus('show parameter sga_target')
+        sga_target=re.findall( r'\d+',result, re.M)
+        if int(sga_target[0]):
+            return 'ASMM'
+        else:
+            return 'all not'
+
+def new_patch_version():
+    '''获取数据库最新补丁版本'''
+    cmd= '%ORACLE_HOME%/OPatch/opatch lsinventory'
+    k=os.popen(cmd)
+    result=k.read()
+    matchObj = re.findall( r'(Patch.*?applied on.*?)\n', result, re.M)
+    return matchObj
 
 def os_type():
     '''获取操作系统类型'''
     return platform.system()
+
+def judge_if_virtual():
+    '''判断是否虚拟机'''
+    os_type=platform.system().lower()
+    if os_type == 'windows':
+        # cmd= '''Systeminfo"'''
+        # windows=os.popen(cmd)
+        # return windows.read().lower().find('时区')
+        return 'unknown'
+    elif os_type == 'linux':
+        shell= '''dmesg | grep -i "\<virtual" |wc l'''
+        linux=os.popen(shell)
+        if int(linux.read()):
+            return 'YES'
+        else:
+            return 'NO'
+    else:
+        return 'unknown'
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -123,7 +185,11 @@ if __name__ == "__main__":
     result['if_cdb'] = theOracle.judge_if_cdb(conn)
     result['db_version'] = theOracle.db_version(conn)
     result['db_small_version'] = theOracle.db_small_version(conn)
-    # result['databses_sizes'] = theMysql.databses_sizes(conn)
+    result['new_patch_version'] = new_patch_version()
+    result['judge_if_virtual'] = judge_if_virtual()
+    result['db_sga'] = theOracle.db_sga(conn)
+    result['db_pga'] = theOracle.db_pga(conn)
+    result['amm_or_asmm'] = amm_or_asmm()
     # result['databses_character'] = theMysql.databses_character(conn)
     # result['threads_connected'] = threads_connected(allMysqlStatus)
     # result['aborted_clients'] = aborted_clients(allMysqlStatus)
@@ -138,9 +204,9 @@ if __name__ == "__main__":
     # result['uptime'] = uptime(allMysqlStatus)
     # result['uptimedate'] = uptimedate(result['uptime'])
     # result = threshold_judge(result)
-    print(json.dumps(result))
-    cmd= '%ORACLE_HOME%/OPatch/opatch lsinventory'
-    k=os.popen(cmd)
-    print k.read()
+
+    #json.dumps 序列化时对中文默认使用的ascii编码.想输出真正的中文需要指定ensure_ascii=False,indent=4 格式化输出字典
+    print(json.dumps(result,ensure_ascii=False,indent=4))
+
 
 

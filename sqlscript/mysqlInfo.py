@@ -5,7 +5,7 @@
 #@Author   : chengengcong
 #@File     : mysqlInfo
 #@Library  : pymysql
-#@Parameter: "{'host':'127.0.0.1','port':3306,'user':'root','passwd':'16899199','com_commit':'60','table_locks_waited':'5','slow_launch_threads':5}"
+#@Parameter: "{'host':'127.0.0.1','port':3306,'user':'root','passwd':'123456','com_commit':'60','table_locks_waited':'5','slow_launch_threads':5}"
 import argparse
 import json
 import platform
